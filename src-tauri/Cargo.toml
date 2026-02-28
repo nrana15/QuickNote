@@ -1,9 +1,11 @@
 [package]
 name = "quicknote-app"
 version = "0.1.0"
-description = "QuickNote - Portable Knowledge Pocket GUI"
-authors = ["Nitin"]
 edition = "2021"
+
+[[bin]]
+name = "quicknote-app"
+path = "main.rs"
 
 [dependencies]
 tauri = { version = "2.0", features = ["dialog-all", "fs-all", "shell-open"] }
