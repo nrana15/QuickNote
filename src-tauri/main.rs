@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::State;
+use std::sync::{Arc, Mutex};
+use tauri::{State, Manager};
 
 #[derive(Serialize)]
 struct AppState {
@@ -13,26 +14,49 @@ struct AddNoteArgs {
     content: String,
 }
 
+type Db = Arc<Mutex<rusqlite::Connection>>;
+
+fn init_db(db_path: &PathBuf) -> Result<Db, Box<dyn std::error::Error>> {
+    let conn = rusqlite::Connection::open(db_path)?;
+    
+    // Create notes table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            knowledge_type TEXT CHECK(knowledge_type IN 
+                ('Concept', 'Snippet', 'Checklist', 'Note', 'Process', 'SQLQuery', 'DebugPattern')),
+            tags TEXT DEFAULT '[]'
+        )",
+        [],
+    )?;
+
+    println!("✅ Database initialized at {:?}", db_path);
+    Ok(Arc::new(Mutex::new(conn)))
+}
+
 #[tauri::command]
-fn add_note(state: State<rusqlite::Connection>, args: AddNoteArgs) -> Result<u64, String> {
-    let mut conn = state.get().lock().unwrap();
+fn add_note(state: State<Db>, args: AddNoteArgs) -> Result<u64, String> {
+    let conn = state.get();
+    let mut connection = conn.lock().unwrap();
     
     let knowledge_type = if args.content.to_lowercase().contains("select") || 
                          args.content.to_lowercase().contains("from ") ||
                          args.content.to_lowercase().contains("insert into") {
-        "SQLQuery".to_string()
+        "SQLQuery"
     } else if args.content.to_lowercase().contains("error") || 
               args.content.to_lowercase().contains("exception") ||
               args.content.to_lowercase().contains("panic") {
-        "DebugPattern".to_string()
+        "DebugPattern"
     } else {
-        "Concept".to_string()
+        "Concept"
     };
     
-    let id: u64 = conn
+    let id: u64 = connection
         .query_row(
             "INSERT INTO notes (title, content, knowledge_type) VALUES (?, ?, ?)",
-            [&args.title, &args.content, &knowledge_type],
+            [&args.title, &args.content, knowledge_type],
             |row| row.get::<_, u64>(0),
         )
         .map_err(|e| format!("Failed to insert note: {}", e))?;
@@ -41,24 +65,25 @@ fn add_note(state: State<rusqlite::Connection>, args: AddNoteArgs) -> Result<u64
 }
 
 #[tauri::command]
-fn search_notes(state: State<rusqlite::Connection>, query: String) -> Result<Vec<serde_json::Value>, String> {
-    let conn = state.get().lock().unwrap();
+fn search_notes(state: State<Db>, query: String) -> Result<Vec<serde_json::Value>, String> {
+    let conn = state.get();
+    let connection = conn.lock().unwrap();
     
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut stmt = conn
+    let mut stmt = connection
         .prepare(
             "SELECT id, title, content, knowledge_type 
-             FROM notes_fts 
-             WHERE notes_fts MATCH ?1
-             ORDER BY rowid DESC"
+             FROM notes 
+             WHERE title LIKE ?1 OR content LIKE ?1
+             ORDER BY id DESC"
         )
         .map_err(|e| format!("Failed to prepare search: {}", e))?;
 
     let results = stmt
-        .query_map([query], |row| {
+        .query_map([format!("%{}%", query)], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, u64>(0)?,
                 "title": row.get::<_, String>(1)?,
@@ -79,44 +104,15 @@ fn search_notes(state: State<rusqlite::Connection>, query: String) -> Result<Vec
 }
 
 #[tauri::command]
-fn get_note_count(state: State<rusqlite::Connection>) -> Result<usize, String> {
-    let conn = state.get().lock().unwrap();
+fn get_note_count(state: State<Db>) -> Result<usize, String> {
+    let conn = state.get();
+    let connection = conn.lock().unwrap();
     
-    let count: usize = conn
+    let count: usize = connection
         .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
         .map_err(|e| format!("Failed to count notes: {}", e))?;
 
     Ok(count)
-}
-
-fn init_database(db_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let conn = rusqlite::Connection::open(db_path)?;
-    
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            knowledge_type TEXT CHECK(knowledge_type IN 
-                ('Concept', 'Snippet', 'Checklist', 'Note', 'Process', 'SQLQuery', 'DebugPattern')),
-            tags TEXT DEFAULT '[]',
-            created_at INTEGER DEFAULT (strftime('%s', 'now')),
-            updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )",
-        [],
-    )?;
-    
-    conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-            title, content,
-            content='notes',
-            content_rowid='id'
-        )",
-        [],
-    )?;
-
-    println!("✅ Database initialized at {:?}", db_path);
-    Ok(())
 }
 
 fn main() {
@@ -124,6 +120,7 @@ fn main() {
         .setup(|app| {
             let app_handle = app.handle();
             
+            // Initialize database if not exists
             let db_path = app_handle
                 .path()
                 .app_data_dir()
@@ -135,11 +132,12 @@ fn main() {
             if !db_path.exists() {
                 println!("📦 Initializing new vault...");
                 
+                // Ensure parent directories exist
                 if let Some(parent) = db_path.parent() {
                     std::fs::create_dir_all(parent).expect("Failed to create data directory");
                 }
                 
-                init_database(&db_path).unwrap_or_else(|e| {
+                init_db(&db_path).map(|_| {}).unwrap_or_else(|e| {
                     eprintln!("❌ Database initialization failed: {}", e);
                 });
             }
