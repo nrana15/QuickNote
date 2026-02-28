@@ -1,20 +1,17 @@
 [package]
-name = "quicknote-app"
+name = "quicknote"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "quicknote-app"
+name = "quicknote"
 path = "main.rs"
 
 [dependencies]
-tauri = { version = "2", default-features = false }
+tauri = { version = "2", features = ["dialog"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
-tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-shell = "2"
 
 [build-dependencies]
 tauri-build = { version = "2" }
