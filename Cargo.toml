@@ -1,0 +1,28 @@
+[package]
+name = "quicknote"
+version = "0.1.0"
+edition = "2021"
+description = "Portable Knowledge Pocket - Single-binary knowledge keeper"
+authors = ["Nitin"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+tokio = { version = "1.0", features = ["full"] }
+
+# Tauri dependencies (for GUI mode)
+[dependencies.tauri]
+version = "2.0"
+features = ["dialog-all", "fs-all", "shell-open"]
+
+[dev-dependencies]
+vitest = "0.34"
+
+[[bin]]
+name = "quicknote"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+strip = true

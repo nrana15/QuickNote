@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+target/
+
+# Build outputs
+dist/
+*.dmg
+*.msi
+*.appimage
+quicknote.exe
+
+# IDE
+.vscode/
+.idea/
+
+# Data files (portable storage)
+data/*.db
+data/cache/*
+
+# Environment
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
