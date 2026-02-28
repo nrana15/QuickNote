@@ -1,12 +1,13 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
   "identifier": "default",
   "description": "Default capabilities for QuickNote",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:allow-open",
-    "fs:read-all",
-    "shell:allow-open"
+    "core:app:default",
+    "core:event:default",
+    "core:path:default",
+    "core:window:default",
+    "core:webview:default"
   ]
 }
