@@ -14,33 +14,33 @@ struct AddNoteArgs {
 }
 
 #[tauri::command]
-async fn add_note(
-    app_handle: AppHandle,
-    state: State<'_, rusqlite::Connection>,
+fn add_note(
+    state: State<rusqlite::Connection>,
     args: AddNoteArgs,
 ) -> Result<u64, String> {
-    let mut conn = state.write();
+    let mut conn = state.get().lock().unwrap();
     
     // Auto-categorize based on content patterns
     let knowledge_type = auto_categorize(&args.content);
     
     // Insert note with transaction
-    let id = conn
-        .execute(
+    let id: u64 = conn
+        .query_row(
             "INSERT INTO notes (title, content, knowledge_type) VALUES (?, ?, ?)",
             [&args.title, &args.content, &knowledge_type],
+            |row| row.get::<_, u64>(0),
         )
         .map_err(|e| format!("Failed to insert note: {}", e))?;
 
-    Ok(id as u64)
+    Ok(id)
 }
 
 #[tauri::command]
-async fn search_notes(
-    state: State<'_, rusqlite::Connection>,
+fn search_notes(
+    state: State<rusqlite::Connection>,
     query: String,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = state.read();
+    let conn = state.get().lock().unwrap();
     
     if query.trim().is_empty() {
         return Ok(Vec::new());
@@ -78,8 +78,8 @@ async fn search_notes(
 }
 
 #[tauri::command]
-async fn get_note_count(state: State<'_, rusqlite::Connection>) -> Result<usize, String> {
-    let conn = state.read();
+fn get_note_count(state: State<rusqlite::Connection>) -> Result<usize, String> {
+    let conn = state.get().lock().unwrap();
     
     let count: usize = conn
         .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
@@ -101,17 +101,6 @@ fn auto_categorize(content: &str) -> String {
     
     // Default to Concept for most knowledge items
     "Concept".to_string()
-}
-
-#[tauri::command]
-async fn check_portable_mode(app_handle: AppHandle) -> Result<bool, String> {
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get executable path: {}", e))?;
-    
-    let app_dir = exe_path.parent().ok_or("Cannot determine app directory")?;
-    let data_dir = app_dir.join("data");
-    
-    Ok(data_dir.exists() && data_dir.is_dir())
 }
 
 fn init_database(db_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -180,8 +169,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             add_note, 
             search_notes, 
-            get_note_count,
-            check_portable_mode
+            get_note_count
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
